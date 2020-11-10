@@ -16,7 +16,20 @@ const ids = {
     'signatureID': 'SIG',
     'timestampID': 'TS',
     'keyInfoID': 'KI',
-    'wsuIDTo': 'ID',
+    'wsuIDTo': 'id',
+}
+
+const signedInfoNS = {
+    'xmlns:ds': Constants.XMLDSIG,
+    'xmlns:wsa': Constants.ADDRESSING,
+    'xmlns:soap': Constants.SOAP_ENVELOPE,
+    'xmlns:wcf': Constants.DIAN_COLOMBIA,
+}
+
+const toNS = {
+    'xmlns:wsa': Constants.ADDRESSING,
+    'xmlns:soap': Constants.SOAP_ENVELOPE,
+    'xmlns:wcf': Constants.DIAN_COLOMBIA,
 }
 
 async function SendRequest(url, data) {
@@ -84,7 +97,7 @@ class SOAP extends Sign {
         signedInfo.appendChild(signatureMethod);
 
         const reference1 = domDocument.createElement('ds:Reference');
-        reference1.setAttribute('URI', ids.wsuIDTo + `-${soapValues.Id}`);
+        reference1.setAttribute('URI', "#" + ids.wsuIDTo + `-${soapValues.Id}`);
         signedInfo.appendChild(reference1);
 
         const transforms = domDocument.createElement('ds:Transforms');
@@ -105,25 +118,42 @@ class SOAP extends Sign {
 
         // DigestValue
         const canonicaliser = c14n().createCanonicaliser(Constants.EXC_C14N);
-        const canonicalised = await new Promise((resolve, reject) =>
-            canonicaliser.canonicalise(domDocument.documentElement, (err, data) => err ? reject(err) : resolve(data))
-        )
-        const digestValueBase64 = crypto.createHash('sha256').update(canonicalised).digest('base64');
+
+        const toElements = domDocument.getElementsByTagName("wsa:To")
+        if (toElements.length < 1) throw new Error("Not wsa:To ELEMENT in template")
+
+        const to = toElements.item(0)
+
+        const canonicaliseTo = await new Promise((resolve, reject) => {
+            let dom = new DOMParser().parseFromString(new XMLSerializer().serializeToString(to))
+
+            Object.keys(toNS).forEach(key => dom.documentElement.setAttribute(key, toNS[key]))
+            dom = new DOMParser().parseFromString(new XMLSerializer().serializeToString(dom))
+
+            canonicaliser.canonicalise(dom.documentElement, (err, data) => err ? reject(err) : resolve(data))
+        })
+
+        const digestValueBase64 = crypto.createHash('sha256').update(canonicaliseTo).digest('base64');
         const digestValue = domDocument.createElement('ds:DigestValue');
         digestValue.textContent = digestValueBase64
         reference1.appendChild(digestValue);
 
         //SignatureValue
-        const signBuffer = crypto.sign("sha256", Buffer.from(canonicalised), {
+
+        const canonicaliseSignedInfo = await new Promise((resolve, reject) => {
+            let dom = new DOMParser().parseFromString(new XMLSerializer().serializeToString(signedInfo))
+
+            Object.keys(signedInfoNS).forEach(key => dom.documentElement.setAttribute(key, signedInfoNS[key]))
+            dom = new DOMParser().parseFromString(new XMLSerializer().serializeToString(dom))
+
+            canonicaliser.canonicalise(dom.documentElement, (err, data) => err ? reject(err) : resolve(data))
+        })
+
+        const signBuffer = crypto.sign("RSA-SHA256", Buffer.from(canonicaliseSignedInfo), {
             key: soapValues.___key,
             padding: crypto.constants.RSA_PKCS1_PSS_PADDING
         })
-
-        const isVerify = crypto.verify("sha256", Buffer.from(canonicalised), {
-            key: soapValues.___cert,
-            padding: crypto.constants.RSA_PKCS1_PSS_PADDING
-        }, signBuffer)
-        if (!isVerify) throw new Error("El contenido del archivo no se pudo verificar con llave publica")
+        // const signBase64 = crypto.createHash('RSA-SHA256').update(canonicaliseSignedInfo).digest('base64');
 
         const signatureValue = domDocument.createElement('ds:SignatureValue');
         signatureValue.textContent = signBuffer.toString("base64")
@@ -138,9 +168,11 @@ class SOAP extends Sign {
         keyInfo.appendChild(securityTokenReference);
 
         const reference2 = domDocument.createElement('wsse:Reference');
-        reference2.setAttribute('URI', ids.wsuBinarySecurityTokenID + `-${soapValues.Id}`);
+        reference2.setAttribute('URI', "#" + ids.wsuBinarySecurityTokenID + `-${soapValues.Id}`);
         reference2.setAttribute('ValueType', Constants.X509V3);
         securityTokenReference.appendChild(reference2);
+
+        console.log(new XMLSerializer().serializeToString(domDocument))
 
         return SendRequest(this.to, new XMLSerializer().serializeToString(domDocument))
     }

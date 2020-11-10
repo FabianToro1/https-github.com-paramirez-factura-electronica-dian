@@ -1,23 +1,15 @@
 const pem = require("pem")
-const uuid4 = require("uuid4")
 
-// function _generate_datetime_timestamp(self) {
-//     fmt = "%Y-%m-%dT%H:%M:%S.%f"
-//     //now_utc = datetime.now(timezone('UTC'))
-//     now_bogota = datetime.now(timezone('UTC'))
-//     //now_bogota = now_utc.astimezone(timezone('America/Bogota'))
-//     Created = now_bogota.strftime(fmt)[: -3] + 'Z'
-//     now_bogota = now_bogota + timedelta(minutes = 5)
-//     Expires = now_bogota.strftime(fmt)[: -3] + 'Z'
-//     timestamp = {
-//         'Created': Created,
-//         'Expires': Expires
-//     }
-//     return timestamp
-// }
+function uuidv4() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        var r = Math.random() * 16 | 0,
+            v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
 
 function addMinutes(date, minutes) {
-    return new Date(date.getTime() + minutes*60000);
+    return new Date(date.getTime() + minutes * 60000);
 }
 
 /**
@@ -42,14 +34,14 @@ function SoapValues(p12Base64, p12Password) {
         }, (err, p12Content) => {
             const date = new Date()
             const Created = date.toISOString()
-            const Expires = addMinutes(date, 5).toISOString()
+            const Expires = addMinutes(date, 1020).toISOString()
             if (err) return reject(err)
-            const BinarySecurityToken = Buffer.from(p12Content.cert.replace("-----BEGIN CERTIFICATE-----", "").replace("-----END CERTIFICATE-----", "")).toString("base64")
+            const BinarySecurityToken = p12Content.cert.replace("-----BEGIN CERTIFICATE-----", "").replace("-----END CERTIFICATE-----", "").replace(/\n|\r/g, "")
             resolve({
                 Created,
                 Expires,
                 BinarySecurityToken,
-                Id: uuid4(),
+                Id: uuidv4(),
                 ___key: p12Content.key,
                 ___cert: p12Content.cert
             })
